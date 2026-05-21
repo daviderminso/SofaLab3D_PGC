@@ -2,11 +2,11 @@ import flet as ft
 import os
 import subprocess
 import sys
+import base64
 import db
 
 RUTA_MODELOS = "modelos"
 
-# ─── PALETA (idéntica al HTML) ────────────────────────────────────────────────
 BG       = "#F7F4F0"
 SURFACE  = "#FFFFFF"
 SURFACE2 = "#F0EBE3"
@@ -26,8 +26,6 @@ HERO_BG  = "#1C1410"
 
 PWD_MIN  = 6
 
-
-# ─── HELPERS UI ──────────────────────────────────────────────────────────────
 
 def borde(color=BORDER, width=1) -> ft.Border:
     lado = ft.BorderSide(width, color)
@@ -100,12 +98,11 @@ def section_label(texto):
 
 
 def divider():
-    return ft.Container(height=1, bgcolor=BORDER, margin=ft.Margin(left=0, right=0, top=0, bottom=0))
+    return ft.Container(height=1, bgcolor=BORDER,
+                        margin=ft.Margin(left=0, right=0, top=0, bottom=0))
 
 
-# ─── VALIDACIONES ────────────────────────────────────────────────────────────
-
-def _validar_usuario(nombre: str) -> str | None:
+def _validar_usuario(nombre: str):
     if not nombre:
         return "Completa todos los campos"
     if " " in nombre:
@@ -115,7 +112,7 @@ def _validar_usuario(nombre: str) -> str | None:
     return None
 
 
-def _validar_pwd(pwd: str) -> str | None:
+def _validar_pwd(pwd: str):
     if not pwd:
         return "Completa todos los campos"
     if len(pwd) < PWD_MIN:
@@ -123,16 +120,14 @@ def _validar_pwd(pwd: str) -> str | None:
     return None
 
 
-# ─── COMPONENTES VISUALES ────────────────────────────────────────────────────
-
 def stat_block(numero, label):
-    """Bloque de estadística para la stats-bar."""
     return ft.Container(
         expand=True,
         padding=ft.Padding(left=0, right=0, top=16, bottom=16),
         content=ft.Column([
             ft.Text(numero, size=28, weight="bold", color=ACCENT2),
-            ft.Text(label, size=10, color="#6E5E50", style=ft.TextStyle(letter_spacing=1)),
+            ft.Text(label, size=10, color="#6E5E50",
+                    style=ft.TextStyle(letter_spacing=1)),
         ], horizontal_alignment="center", spacing=2),
     )
 
@@ -152,7 +147,6 @@ def badge(texto, accent=False):
 
 
 def sec_item(icono, titulo_txt, desc):
-    """Item de seguridad."""
     return ft.Container(
         bgcolor=SURFACE, border_radius=10,
         border=borde(), padding=20,
@@ -183,60 +177,58 @@ def contact_card(icono, titulo_txt, *infos):
     )
 
 
-# ─── CUBO 3D ANIMADO (CSS-inspired via AnimatedRotation) ─────────────────────
+# ─── HELPERS DE IMAGEN ───────────────────────────────────────────────────────
 
-def hero_cubo():
-    """Cubo decorativo en el hero usando un Stack con caras estilizadas."""
-    cara = lambda emoji, rot_y=0: ft.Container(
-        width=110, height=110,
-        bgcolor="#2A1010",
-        border=ft.Border.all(1, "#7A5A3A"),
-        border_radius=4,
-        content=ft.Text(emoji, size=32, text_align="center"),
+def blob_a_base64_src(blob, extension):
+    if not blob:
+        return None
+    mime = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png",  "webp": "image/webp",
+        "gif": "image/gif",
+    }.get((extension or "").lower(), "image/png")
+    b64 = base64.b64encode(blob).decode()
+    return f"data:{mime};base64,{b64}"
+
+
+def avatar_desde_ruta(ruta, initials, color1, color2, size=64, radius=12):
+    """Foto real si existe, degradado con iniciales si no."""
+    if ruta and os.path.isfile(ruta):
+        return ft.Image(
+            src=ruta, width=size, height=size,
+            fit="cover",
+            border_radius=radius,
+        )
+    return ft.Container(
+        width=size, height=size, border_radius=radius,
+        gradient=ft.LinearGradient(
+            colors=[color1, color2],
+            begin=ft.alignment.Alignment(-1, -1),
+            end=ft.alignment.Alignment(1, 1),
+        ),
+        content=ft.Text(initials, size=size // 3, weight="bold",
+                        color="white", text_align="center"),
         alignment=ft.alignment.Alignment(0, 0),
     )
-    # Simulamos el cubo como un stack de caras con offsets
-    return ft.Container(
-        width=200, height=200,
-        content=ft.Stack([
-            ft.Container(
-                left=40, top=40,
-                content=ft.Column([
-                    ft.Row([cara("🛋️"), cara("🪑")], spacing=4),
-                    ft.Row([cara("🎨"), cara("📐")], spacing=4),
-                ], spacing=4),
-            ),
-        ]),
-    )
 
-
-# ─── APP ─────────────────────────────────────────────────────────────────────
 
 class App:
 
     def __init__(self, page: ft.Page):
         self.page    = page
         self.usuario = None
-        self._cubo_activo = False
 
         page.title   = "SofaLab 3D Studio"
         page.bgcolor = BG
         page.padding = 0
         page.fonts   = {}
 
-        # Área de contenido principal con scroll
-        self.contenido = ft.Container(
-            expand=True, bgcolor=BG,
-        )
+        self.contenido = ft.Container(expand=True)
         self._scroll_col = ft.Column(
-            [self.contenido],
-            expand=True, scroll="auto",
+            [self.contenido], expand=True, scroll="auto",
         )
 
-        self.sidebar = ft.Container(
-            width=220, bgcolor=NAV_BG,
-            expand=False,
-        )
+        self.sidebar = ft.Container(width=220, bgcolor=NAV_BG, expand=False)
 
         page.add(
             ft.Row(
@@ -259,7 +251,8 @@ class App:
             bgcolor=NAV_HOVER if activo else "transparent",
             on_click=on_click, ink=True,
             border=ft.Border(
-                left=ft.BorderSide(3, ACCENT2) if activo else ft.BorderSide(3, "transparent")
+                left=ft.BorderSide(3, ACCENT2) if activo
+                else ft.BorderSide(3, "transparent")
             ),
             content=ft.Row([
                 ft.Text(icono, size=16, width=20, text_align="center"),
@@ -276,8 +269,10 @@ class App:
             padding=ft.Padding(left=20, right=20, top=24, bottom=16),
             border=ft.Border(bottom=ft.BorderSide(1, NAV_DIV)),
             content=ft.Column([
-                ft.Text("SofaLab", size=20, weight="bold", color=TEXT_NAV, style=ft.TextStyle(letter_spacing=0.5)),
-                ft.Text("3D STUDIO", size=9, color="#6E5E50", style=ft.TextStyle(letter_spacing=3)),
+                ft.Text("SofaLab", size=20, weight="bold", color=TEXT_NAV,
+                        style=ft.TextStyle(letter_spacing=0.5)),
+                ft.Text("3D STUDIO", size=9, color="#6E5E50",
+                        style=ft.TextStyle(letter_spacing=3)),
             ], spacing=2),
         )
 
@@ -285,12 +280,12 @@ class App:
             nav_items = [
                 logo,
                 ft.Container(height=8),
-                self._nav_item("🏠", "Inicio",     lambda e: self.pantalla_inicio(),  activo == "inicio"),
-                self._nav_item("🎨", "Materiales", lambda e: self.pantalla_telas(),   activo == "telas"),
-                self._nav_item("📦", "Modelos 3D", lambda e: self.pantalla_3d(),      activo == "3d"),
-                self._nav_item("👤", "Mi perfil",  lambda e: self.pantalla_perfil(),  activo == "perfil"),
-                self._nav_item("👥", "Nosotros",   lambda e: self.pantalla_nosotros(),activo == "nosotros"),
-                self._nav_item("✉️", "Contacto",   lambda e: self.pantalla_contacto(),activo == "contacto"),
+                self._nav_item("🏠", "Inicio",     lambda e: self.pantalla_inicio(),   activo == "inicio"),
+                self._nav_item("🎨", "Materiales", lambda e: self.pantalla_telas(),    activo == "telas"),
+                self._nav_item("📦", "Modelos 3D", lambda e: self.pantalla_3d(),       activo == "3d"),
+                self._nav_item("👤", "Mi perfil",  lambda e: self.pantalla_perfil(),   activo == "perfil"),
+                self._nav_item("👥", "Nosotros",   lambda e: self.pantalla_nosotros(), activo == "nosotros"),
+                self._nav_item("✉️", "Contacto",   lambda e: self.pantalla_contacto(), activo == "contacto"),
                 ft.Container(expand=True),
                 ft.Container(height=1, bgcolor=NAV_DIV),
                 ft.Container(
@@ -313,163 +308,168 @@ class App:
             nav_items = [
                 logo,
                 ft.Container(height=8),
-                self._nav_item("🏠", "Inicio",     lambda e: self.pantalla_inicio(), activo == "inicio"),
-                self._nav_item("👥", "Nosotros",   lambda e: self.pantalla_nosotros(), activo == "nosotros"),
-                self._nav_item("✉️", "Contacto",   lambda e: self.pantalla_contacto(), activo == "contacto"),
-                self._nav_item("🔑", "Ingresar",   lambda e: self.pantalla_login(),  activo == "login"),
+                self._nav_item("🏠", "Inicio",   lambda e: self.pantalla_inicio(),   activo == "inicio"),
+                self._nav_item("👥", "Nosotros", lambda e: self.pantalla_nosotros(), activo == "nosotros"),
+                self._nav_item("✉️", "Contacto", lambda e: self.pantalla_contacto(), activo == "contacto"),
+                self._nav_item("🔑", "Ingresar", lambda e: self.pantalla_login(),    activo == "login"),
             ]
 
         self.sidebar.content = ft.Column(nav_items, spacing=0, expand=True)
         self.page.update()
 
-    # ─── HELPERS ─────────────────────────────────────────────────────────────
-
     def _set(self, widget):
-        self._cubo_activo = False   # detiene animación si estaba corriendo
         self.contenido.content = widget
         self.page.update()
-
-    def _reset_bg(self):
-        """Restaura el fondo crema al navegar fuera del inicio logueado."""
-        self.contenido.bgcolor = BG
 
     def _logout(self, e=None):
         self.usuario = None
         self._rebuild_sidebar()
         self.pantalla_inicio()
 
+    # ─── DIÁLOGOS ────────────────────────────────────────────────────────────
+
+    def _abrir_dialogo(self, dlg):
+        if dlg not in self.page.overlay:
+            self.page.overlay.append(dlg)
+        dlg.open = True
+        self.page.update()
+
+    def _cerrar_dialogo(self, dlg):
+        dlg.open = False
+        self.page.update()
+
     # ─── INICIO ──────────────────────────────────────────────────────────────
 
     def pantalla_inicio(self):
         self._rebuild_sidebar("inicio")
+        self._set(self._build_home())
+
+    def _build_home(self):
         if self.usuario:
-            self.contenido.bgcolor = HERO_BG
-            self._set(self._build_home_logueado())
+            badge_txt = "✦ Panel de usuario"
+            linea1    = ft.Text("Bienvenido,", size=20, color="#B8A898")
+            linea2    = ft.Text(f"{self.usuario}!", size=52, weight="bold", color="white")
+            linea3    = ft.Text("¿Qué deseas gestionar hoy?", size=15, color="#B8A898")
+            botones   = ft.Row([
+                ft.ElevatedButton(
+                    "🎨 Ir a Materiales",
+                    on_click=lambda e: self.pantalla_telas(),
+                    style=ft.ButtonStyle(
+                        bgcolor=ACCENT, color="white",
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                        elevation=0,
+                        padding=ft.Padding(left=24, right=24, top=14, bottom=14),
+                    ),
+                ),
+                ft.OutlinedButton(
+                    "📦 Ver modelos 3D",
+                    on_click=lambda e: self.pantalla_3d(),
+                    style=ft.ButtonStyle(
+                        color=TEXT_NAV,
+                        side=ft.BorderSide(1, "#4D4440"),
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                        padding=ft.Padding(left=24, right=24, top=14, bottom=14),
+                    ),
+                ),
+            ], spacing=12)
         else:
-            self.contenido.bgcolor = BG
-            self._set(self._build_home_publico())
+            badge_txt = "✦ Software profesional de tapicería 3D"
+            linea1    = ft.Text("SofaLab", size=52, weight="bold", color="white")
+            linea2    = ft.Text("3D Studio", size=52, weight="bold", color=ACCENT2)
+            linea3    = ft.Text(
+                "Diseña, visualiza y cotiza muebles tapizados con\ntecnología 3D. "
+                "Gestiona materiales, modelos y\npresupuestos desde un solo lugar.",
+                size=15, color="#B8A898",
+            )
+            botones   = ft.Row([
+                ft.ElevatedButton(
+                    "🚀 Comenzar ahora",
+                    on_click=lambda e: self.pantalla_login(),
+                    style=ft.ButtonStyle(
+                        bgcolor=ACCENT, color="white",
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                        elevation=0,
+                        padding=ft.Padding(left=24, right=24, top=14, bottom=14),
+                    ),
+                ),
+                ft.OutlinedButton(
+                    "📦 Ver modelos 3D",
+                    on_click=lambda e: self.pantalla_login(),
+                    style=ft.ButtonStyle(
+                        color=TEXT_NAV,
+                        side=ft.BorderSide(1, "#4D4440"),
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                        padding=ft.Padding(left=24, right=24, top=14, bottom=14),
+                    ),
+                ),
+            ], spacing=12)
 
-    def _build_home_publico(self):
-        """Página de inicio completa fiel al HTML: hero, stats, módulos, about, seguridad, equipo, contacto, footer."""
-
-        # ── HERO ──────────────────────────────────────────────────────────────
         hero = ft.Container(
             bgcolor=HERO_BG,
             padding=ft.Padding(left=48, right=48, top=64, bottom=64),
             content=ft.Row([
-                # Contenido izquierdo
                 ft.Column([
-                    # Badge
                     ft.Container(
-                        bgcolor="#3D1010",
-                        border_radius=20,
+                        bgcolor="#3D1010", border_radius=20,
                         padding=ft.Padding(left=14, right=14, top=6, bottom=6),
                         border=ft.Border.all(1, "#6B1A1A"),
-                        content=ft.Text("✦ Software profesional de tapicería 3D",
-                                        size=11, color="#F5C4A0", style=ft.TextStyle(letter_spacing=0.5)),
+                        content=ft.Text(badge_txt, size=11, color="#F5C4A0",
+                                        style=ft.TextStyle(letter_spacing=0.5)),
                     ),
                     ft.Container(height=16),
-                    # Título
-                    ft.Column([
-                        ft.Text("SofaLab", size=52, weight="bold", color="white"),
-                        ft.Text("3D Studio", size=52, weight="bold", color=ACCENT2),
-                    ], spacing=0),
+                    linea1,
+                    linea2,
                     ft.Container(height=12),
-                    # Subtítulo
-                    ft.Text(
-                        "Diseña, visualiza y cotiza muebles tapizados con\ntecnología 3D. "
-                        "Gestiona materiales, modelos y\npresupuestos desde un solo lugar.",
-                        size=15, color="#B8A898",
-                    ),
+                    linea3,
                     ft.Container(height=28),
-                    # Botones
-                    ft.Row([
-                        ft.ElevatedButton(
-                            "🚀 Comenzar ahora",
-                            on_click=lambda e: self.pantalla_login(),
-                            style=ft.ButtonStyle(
-                                bgcolor=ACCENT, color="white",
-                                shape=ft.RoundedRectangleBorder(radius=8),
-                                elevation=0,
-                                padding=ft.Padding(left=24, right=24, top=14, bottom=14),
-                            ),
-                        ),
-                        ft.OutlinedButton(
-                            "📦 Ver modelos 3D",
-                            on_click=lambda e: self.pantalla_login(),
-                            style=ft.ButtonStyle(
-                                color=TEXT_NAV,
-                                side=ft.BorderSide(1, "#4D4440"),
-                                shape=ft.RoundedRectangleBorder(radius=8),
-                                padding=ft.Padding(left=24, right=24, top=14, bottom=14),
-                            ),
-                        ),
-                    ], spacing=12),
+                    botones,
                 ], spacing=0),
-                # Decoración cubo
                 ft.Container(
                     width=220, height=220,
                     content=ft.Column([
                         ft.Row([
-                            ft.Container(
-                                width=100, height=100,
-                                bgcolor="#2A1010",
-                                border=ft.Border.all(2, "#7A5A3A"),
-                                border_radius=4,
+                            ft.Container(width=100, height=100, bgcolor="#2A1010",
+                                border=ft.Border.all(2, "#7A5A3A"), border_radius=4,
                                 content=ft.Text("🛋️", size=36, text_align="center"),
-                                alignment=ft.alignment.Alignment(0, 0),
-                            ),
-                            ft.Container(
-                                width=100, height=100,
-                                bgcolor="#251010",
-                                border=ft.Border.all(2, "#7A5A3A"),
-                                border_radius=4,
+                                alignment=ft.alignment.Alignment(0, 0)),
+                            ft.Container(width=100, height=100, bgcolor="#251010",
+                                border=ft.Border.all(2, "#7A5A3A"), border_radius=4,
                                 content=ft.Text("🪑", size=36, text_align="center"),
-                                alignment=ft.alignment.Alignment(0, 0),
-                            ),
+                                alignment=ft.alignment.Alignment(0, 0)),
                         ], spacing=6),
                         ft.Row([
-                            ft.Container(
-                                width=100, height=100,
-                                bgcolor="#2A1E12",
-                                border=ft.Border.all(2, "#7A5A3A"),
-                                border_radius=4,
+                            ft.Container(width=100, height=100, bgcolor="#2A1E12",
+                                border=ft.Border.all(2, "#7A5A3A"), border_radius=4,
                                 content=ft.Text("🎨", size=36, text_align="center"),
-                                alignment=ft.alignment.Alignment(0, 0),
-                            ),
-                            ft.Container(
-                                width=100, height=100,
-                                bgcolor="#251B10",
-                                border=ft.Border.all(2, "#7A5A3A"),
-                                border_radius=4,
+                                alignment=ft.alignment.Alignment(0, 0)),
+                            ft.Container(width=100, height=100, bgcolor="#251B10",
+                                border=ft.Border.all(2, "#7A5A3A"), border_radius=4,
                                 content=ft.Text("📐", size=36, text_align="center"),
-                                alignment=ft.alignment.Alignment(0, 0),
-                            ),
+                                alignment=ft.alignment.Alignment(0, 0)),
                         ], spacing=6),
                     ], spacing=6),
                 ),
             ], spacing=0, vertical_alignment="center"),
         )
 
-        # ── STATS BAR ─────────────────────────────────────────────────────────
+        n_catalogos = str(len(db.listar_catalogos())) if self.usuario else "5"
         stats = ft.Container(
             bgcolor=HERO_BG,
             border=ft.Border(bottom=ft.BorderSide(1, NAV_DIV)),
             padding=ft.Padding(left=48, right=48, top=4, bottom=4),
             content=ft.Row([
-                stat_block("5", "CATÁLOGOS DE TELAS"),
+                stat_block(n_catalogos, "CATÁLOGOS DE TELAS"),
                 ft.Container(width=1, bgcolor=NAV_DIV),
-                stat_block("12", "MODELOS 3D"),
+                stat_block("2", "MODELOS 3D"),
                 ft.Container(width=1, bgcolor=NAV_DIV),
-                stat_block("80+", "MATERIALES"),
+                stat_block("40", "MATERIALES"),
                 ft.Container(width=1, bgcolor=NAV_DIV),
                 stat_block("1", "USUARIOS ACTIVOS"),
             ], spacing=0),
         )
 
-        # ── MÓDULOS ───────────────────────────────────────────────────────────
         modulos = ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Módulos del sistema"),
                 ft.Container(height=6),
@@ -479,55 +479,48 @@ class App:
                 ft.Container(height=28),
                 ft.Row([
                     self._feature_card("🎨", "Biblioteca de Materiales",
-                        "Catálogos organizados de telas, cuero y texturas. Agrega imágenes y filtra por colección.",
+                        "Catálogos organizados de telas, cuero y texturas.",
                         "Cuerina · Veranera · Nevada",
-                        lambda e: self.pantalla_login()),
+                        lambda e: self.pantalla_telas() if self.usuario else self.pantalla_login()),
                     self._feature_card("📦", "Visualización 3D",
-                        "Carga modelos .GLB, .EGG o .GLTF y explóralos con rotación libre, zoom y luz ambiental.",
-                        "Panda3D · GLB · GLTF",
-                        lambda e: self.pantalla_login()),
+                        "Carga modelos .GLB y explóralos con rotación libre.",
+                        "Panda3D · GLB",
+                        lambda e: self.pantalla_3d() if self.usuario else self.pantalla_login()),
                     self._feature_card("🧾", "Cotización",
-                        "Genera presupuestos detallados por cliente, incluyendo materiales y tiempos de entrega.",
-                        "Próximamente",
-                        None),
+                        "Genera presupuestos detallados por cliente.",
+                        "Próximamente", None),
                     self._feature_card("📊", "Panel de Control",
-                        "Vista general del negocio: pedidos activos, materiales disponibles y estadísticas.",
-                        "Próximamente",
-                        None),
+                        "Vista general del negocio y estadísticas.",
+                        "Próximamente", None),
                 ], wrap=True, spacing=16),
             ], spacing=4),
         )
 
-        # ── ABOUT ─────────────────────────────────────────────────────────────
         about = ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Acerca del proyecto"),
                 ft.Container(height=6),
                 titulo("¿Qué es SofaLab 3D?", 28),
                 ft.Container(height=6),
-                subtitulo("Una solución de escritorio construida para modernizar los talleres de tapicería con tecnología accesible."),
+                subtitulo("Una solución de escritorio construida para modernizar los talleres de tapicería."),
                 ft.Container(height=24),
                 ft.Row([
-                    # Info general
                     ft.Container(
-                        width=340,
-                        bgcolor=SURFACE, border_radius=12,
+                        width=340, bgcolor=SURFACE, border_radius=12,
                         border=borde(), padding=24,
                         content=ft.Column([
                             ft.Text("📋 Información general", size=13, weight="bold", color=TEXT),
                             ft.Container(height=12),
-                            self._info_row("Nombre",      "SofaLab 3D Studio"),
-                            self._info_row("Tipo",        "Aplicación de escritorio"),
-                            self._info_row("Plataforma",  "Windows / Linux / macOS"),
+                            self._info_row("Nombre",       "SofaLab 3D Studio"),
+                            self._info_row("Tipo",         "Aplicación de escritorio"),
+                            self._info_row("Plataforma",   "Windows"),
                             self._info_row("Base de datos","SQLite (local)"),
-                            self._info_row("Versión",     "1.0.0 Beta"),
+                            self._info_row("Versión",      "1.0.0 Beta"),
                         ], spacing=0),
                     ),
-                    # Tecnologías
                     ft.Container(
-                        width=340,
-                        bgcolor=SURFACE, border_radius=12,
+                        width=340, bgcolor=SURFACE, border_radius=12,
                         border=borde(), padding=24,
                         content=ft.Column([
                             ft.Text("🛠️ Tecnologías utilizadas", size=13, weight="bold", color=TEXT),
@@ -559,74 +552,42 @@ class App:
             ], spacing=4),
         )
 
-        # ── SEGURIDAD ─────────────────────────────────────────────────────────
         seguridad = ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Seguridad del sistema"),
                 ft.Container(height=6),
                 titulo("Tus datos, protegidos", 28),
                 ft.Container(height=6),
-                subtitulo("Implementamos las mejores prácticas de seguridad para una aplicación de escritorio local."),
+                subtitulo("Implementamos las mejores prácticas de seguridad para una aplicación local."),
                 ft.Container(height=24),
                 ft.Row([
                     sec_item("🔐", "Contraseñas cifradas",
-                             "SHA-256 hash en cada contraseña. Nunca se guarda texto plano en la base de datos."),
+                             "SHA-256 hash. Nunca se guarda texto plano en la BD."),
                     sec_item("🗃️", "BD local y privada",
-                             "SQLite sin servidor. Tus datos nunca salen de tu computador ni pasan por internet."),
+                             "SQLite sin servidor. Tus datos nunca salen de tu PC."),
                     sec_item("🔗", "Integridad referencial",
-                             "Foreign keys con CASCADE aseguran que no queden datos huérfanos al eliminar catálogos."),
+                             "Foreign keys con CASCADE evitan datos huérfanos."),
                 ], spacing=14, wrap=True),
                 ft.Container(height=14),
                 ft.Row([
                     sec_item("✅", "Validación de entrada",
-                             "Cada campo valida formato, longitud y caracteres antes de tocar la base de datos."),
+                             "Cada campo valida formato y longitud antes de tocar la BD."),
                     sec_item("🔒", "Sesión protegida",
-                             "Sin sesión activa no se accede a materiales ni modelos. Redirección automática al login."),
+                             "Sin sesión no se accede a materiales ni modelos."),
                     sec_item("🧩", "Conexiones seguras",
-                             "Context managers garantizan que cada conexión a SQLite se cierre aunque haya errores."),
+                             "Context managers cierran SQLite aunque haya errores."),
                 ], spacing=14, wrap=True),
             ], spacing=4),
         )
 
-        # ── EQUIPO ────────────────────────────────────────────────────────────
         equipo = ft.Container(
-            padding=48,
-            content=ft.Column([
-                section_label("Equipo de desarrollo"),
-                ft.Container(height=6),
-                titulo("Nosotros", 28),
-                ft.Container(height=6),
-                subtitulo("Estudiantes de ingeniería apasionados por unir tecnología y diseño industrial."),
-                ft.Container(height=24),
-                ft.Row([
-                    self._team_card("D1", "#8B1A1A", ACCENT2,
-                                    "Desarrollador 1", "Lead Developer · Backend & DB",
-                                    "Responsable de la arquitectura, base de datos, seguridad y lógica de negocio del sistema."),
-                    self._team_card("D2", ACCENT2, "#8B4513",
-                                    "Desarrollador 2", "Frontend & 3D Engineer",
-                                    "Diseño de interfaz, visualización 3D con Panda3D y experiencia de usuario del software."),
-                ], spacing=20, wrap=True),
-                ft.Container(height=20),
-                ft.Container(
-                    bgcolor=SURFACE, border_radius=12,
-                    border=borde(), padding=24,
-                    content=ft.Row([
-                        ft.Text("🏛️", size=36),
-                        ft.Container(width=16),
-                        ft.Column([
-                            ft.Text("Universidad de formación", size=15, weight="bold", color=TEXT),
-                            ft.Text("Proyecto de grado en Ingeniería de Sistemas · 2025", size=13, color=TEXT_SUB),
-                            ft.Text("Agrega aquí el nombre de tu universidad ✏️", size=12, color=ACCENT, weight="w500"),
-                        ], spacing=4),
-                    ], vertical_alignment="center"),
-                ),
-            ], spacing=4),
+            bgcolor=BG,
+            content=self._seccion_equipo(),
         )
 
-        # ── CONTACTO ──────────────────────────────────────────────────────────
         contacto = ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Contacto"),
                 ft.Container(height=6),
@@ -636,10 +597,10 @@ class App:
                 ft.Container(height=24),
                 ft.Row([
                     contact_card("📧", "Correo electrónico",
-                                 "correo@universidad.edu.co",
-                                 "correo2@universidad.edu.co"),
+                                 "emaltes@ucundinamarca.edu.co",
+                                 "derminsovargas@ucundinamarca.edu.co"),
                     contact_card("💻", "Repositorio del proyecto",
-                                 "github.com/usuario/sofalab3d"),
+                                 "https://github.com/daviderminso/SofaLab3D_PGC"),
                     contact_card("📍", "Ubicación",
                                  "Colombia · Facultad de Ingeniería"),
                     contact_card("🕐", "Horario de atención",
@@ -648,7 +609,6 @@ class App:
             ], spacing=4),
         )
 
-        # ── FOOTER ────────────────────────────────────────────────────────────
         footer = ft.Container(
             bgcolor=HERO_BG,
             padding=ft.Padding(left=48, right=48, top=28, bottom=28),
@@ -664,151 +624,32 @@ class App:
                 ft.Column([
                     ft.Text("Hecho con ❤️ en Python · Flet · Panda3D",
                             size=12, color="#6E5E50", text_align="right"),
-                    ft.Text("© 2025 SofaLab 3D · Proyecto universitario",
+                    ft.Text("© 2026 SofaLab 3D · Proyecto universitario",
                             size=12, color="#6E5E50", text_align="right"),
                 ], spacing=4, horizontal_alignment="end"),
             ], alignment="spaceBetween"),
         )
 
         return ft.Column([
-            hero,
-            stats,
+            hero, stats,
             modulos,
-            divider(),
-            about,
-            divider(),
-            seguridad,
-            divider(),
-            equipo,
-            divider(),
-            contacto,
+            divider(), about,
+            divider(), seguridad,
+            divider(), equipo,
+            divider(), contacto,
             footer,
         ], spacing=0)
 
-    def _build_home_logueado(self):
-        """Pantalla de inicio para usuario autenticado."""
-        import asyncio
-
-        # ── Cubo animado ──────────────────────────────────────────────────────
-        CARAS = ["🛋️", "🪑", "🎨", "📐", "✨", "💼"]
-        cara_txt = ft.Text(CARAS[0], size=52, text_align="center")
-        cara_lbl = ft.Text("tapicería 3D", size=11, color="#9E8E80", text_align="center")
-
-        cubo = ft.Container(
-            width=140, height=140,
-            bgcolor="#2C1A10",
-            border_radius=16,
-            border=ft.Border.all(2, "#7A5A3A"),
-            content=ft.Column([
-                cara_txt,
-                ft.Container(height=6),
-                cara_lbl,
-            ], alignment="center", horizontal_alignment="center", spacing=0),
-        )
-
-        self._cubo_activo = True
-
-        async def animar_cubo():
-            labels = ["tapicería 3D", "modelos 3D", "materiales", "diseño", "detalles", "gestión"]
-            i = 0
-            while self._cubo_activo:
-                await asyncio.sleep(1.2)
-                i = (i + 1) % len(CARAS)
-                cara_txt.value = CARAS[i]
-                cara_lbl.value = labels[i]
-                try:
-                    self.page.update()
-                except Exception:
-                    break
-
-        self.page.run_task(animar_cubo)
-
-        # ── Hero ──────────────────────────────────────────────────────────────
-        hero = ft.Container(
-            bgcolor=HERO_BG,
-            padding=ft.Padding(left=48, right=48, top=56, bottom=56),
-            content=ft.Row([
-                # Columna izquierda
-                ft.Column([
-                    ft.Container(
-                        bgcolor="#3D1010",
-                        border_radius=20,
-                        padding=ft.Padding(left=14, right=14, top=6, bottom=6),
-                        border=ft.Border.all(1, "#6B1A1A"),
-                        content=ft.Text("✦ Panel de usuario", size=11, color="#F5C4A0",
-                                        style=ft.TextStyle(letter_spacing=0.5)),
-                        width=160,
-                    ),
-                    ft.Container(height=16),
-                    ft.Text(f"Bienvenido,", size=20, color="#B8A898"),
-                    ft.Text(f"{self.usuario}!", size=42, weight="bold", color="white"),
-                    ft.Container(height=8),
-                    ft.Text("¿Qué deseas gestionar hoy?", size=15, color="#B8A898"),
-                    ft.Container(height=28),
-                    ft.Row([
-                        self._home_card_hero("🎨", "Materiales",
-                                             "Catálogos de telas y texturas",
-                                             lambda e: self.pantalla_telas()),
-                        self._home_card_hero("📦", "Modelos 3D",
-                                             "Explora y rota modelos",
-                                             lambda e: self.pantalla_3d()),
-                        self._home_card_hero("👤", "Mi Perfil",
-                                             "Configuración de cuenta",
-                                             lambda e: self.pantalla_perfil()),
-                    ], spacing=14, wrap=True),
-                ], spacing=0),
-                # Cubo animado
-                ft.Container(
-                    padding=ft.Padding(left=40, right=0, top=0, bottom=0),
-                    content=ft.Column([
-                        cubo,
-                        ft.Container(height=12),
-                        ft.Text("Vista previa", size=10, color="#6E5E50",
-                                 text_align="center"),
-                    ], horizontal_alignment="center", spacing=0),
-                ),
-            ], spacing=40, vertical_alignment="center"),
-        )
-
-        stats = ft.Container(
-            bgcolor=HERO_BG,
-            border=ft.Border(bottom=ft.BorderSide(1, NAV_DIV)),
-            padding=ft.Padding(left=48, right=48, top=4, bottom=4),
-            content=ft.Row([
-                stat_block(str(len(db.listar_catalogos())), "CATÁLOGOS"),
-                ft.Container(width=1, bgcolor=NAV_DIV),
-                stat_block("1", "USUARIO ACTIVO"),
-            ], spacing=0),
-        )
-        relleno = ft.Container(bgcolor=HERO_BG, expand=True)
-        return ft.Column([hero, stats, relleno], spacing=0, expand=True)
-
-    def _home_card_hero(self, icono, tit, desc, on_click):
-        return ft.Container(
-            width=220, height=130,
-            bgcolor="#2C1F18",
-            border_radius=12,
-            border=ft.Border.all(1, "#3D2E26"),
-            padding=20, on_click=on_click, ink=True,
-            content=ft.Column([
-                ft.Text(icono, size=28),
-                ft.Text(tit, size=14, weight="bold", color=TEXT_NAV),
-                ft.Text(desc, size=11, color="#9E8E80"),
-            ], spacing=5),
-        )
-
-    # ── Feature Card ─────────────────────────────────────────────────────────
+    # ─── HELPERS DE TARJETAS ─────────────────────────────────────────────────
 
     def _feature_card(self, icono, tit, desc, tag, on_click):
         return ft.Container(
-            width=240,
-            bgcolor=SURFACE, border_radius=12,
+            width=240, bgcolor=SURFACE, border_radius=12,
             border=borde(), padding=28,
             on_click=on_click, ink=bool(on_click),
             content=ft.Column([
                 ft.Container(
-                    width=52, height=52, border_radius=12,
-                    bgcolor=SURFACE2,
+                    width=52, height=52, border_radius=12, bgcolor=SURFACE2,
                     content=ft.Text(icono, size=24, text_align="center"),
                     alignment=ft.alignment.Alignment(0, 0),
                 ),
@@ -825,8 +666,6 @@ class App:
             ], spacing=0),
         )
 
-    # ── Info Row ─────────────────────────────────────────────────────────────
-
     def _info_row(self, key, val):
         return ft.Container(
             border=ft.Border(bottom=ft.BorderSide(1, BORDER)),
@@ -837,25 +676,15 @@ class App:
             ]),
         )
 
-    # ── Team Card ────────────────────────────────────────────────────────────
-
-    def _team_card(self, initials, color1, color2, nombre, rol, bio):
+    def _team_card(self, initials, color1, color2, nombre, rol, bio,
+                   foto_ruta=None):
+        avatar = avatar_desde_ruta(foto_ruta, initials, color1, color2,
+                                   size=64, radius=12)
         return ft.Container(
-            width=380,
-            bgcolor=SURFACE, border_radius=12,
+            width=380, bgcolor=SURFACE, border_radius=12,
             border=borde(), padding=28,
             content=ft.Row([
-                ft.Container(
-                    width=64, height=64, border_radius=12,
-                    gradient=ft.LinearGradient(
-                        colors=[color1, color2],
-                        begin=ft.alignment.Alignment(-1, -1),
-                        end=ft.alignment.Alignment(1, 1),
-                    ),
-                    content=ft.Text(initials, size=22, weight="bold", color="white",
-                                    text_align="center"),
-                    alignment=ft.alignment.Alignment(0, 0),
-                ),
+                avatar,
                 ft.Container(width=16),
                 ft.Column([
                     ft.Text(nombre, size=16, weight="bold", color=TEXT),
@@ -863,32 +692,36 @@ class App:
                     ft.Container(height=4),
                     ft.Text(bio, size=12, color=TEXT_SUB),
                     ft.Container(height=8),
-                    ft.Text("🎓 Universidad · Ingeniería de Sistemas", size=11, color=TEXT_SUB),
+                    ft.Text("🎓 Universidad De Cundinamarca", size=11, color=TEXT_SUB),
                 ], spacing=2),
             ], vertical_alignment="start"),
         )
 
-    # ─── PANTALLAS DE NAVEGACIÓN (nosotros, contacto, perfil) ────────────────
-
-    def pantalla_nosotros(self):
-        self._reset_bg()
-        self._rebuild_sidebar("nosotros")
-        self._set(ft.Container(
+    def _seccion_equipo(self):
+        return ft.Container(
             padding=48,
             content=ft.Column([
                 section_label("Equipo de desarrollo"),
                 ft.Container(height=6),
                 titulo("Nosotros", 28),
                 ft.Container(height=6),
-                subtitulo("Estudiantes de ingeniería apasionados por unir tecnología y diseño industrial."),
-                ft.Container(height=28),
+                subtitulo("Estudiantes de ingeniería apasionados por unir tecnología y diseño textil."),
+                ft.Container(height=24),
                 ft.Row([
-                    self._team_card("D1", "#8B1A1A", ACCENT2,
-                                    "Desarrollador 1", "Lead Developer · Backend & DB",
-                                    "Responsable de la arquitectura, base de datos, seguridad y lógica de negocio del sistema."),
-                    self._team_card("D2", ACCENT2, "#8B4513",
-                                    "Desarrollador 2", "Frontend & 3D Engineer",
-                                    "Diseño de interfaz, visualización 3D con Panda3D y experiencia de usuario del software."),
+                    self._team_card(
+                        "D1", "#8B1A1A", ACCENT2,
+                        "Desarrollador 1",
+                        "Edwin Santiago Maltes Rodriguez",
+                        "Estudiante 3 Semestre.",
+                        foto_ruta="assets/edwin.jpg",
+                    ),
+                    self._team_card(
+                        "D2", ACCENT2, "#8B4513",
+                        "Desarrollador 2",
+                        "David Erminso Vargas Quiceno",
+                        "Estudiante 3 Semestre.",
+                        foto_ruta="assets/david.jpg",
+                    ),
                 ], spacing=20, wrap=True),
                 ft.Container(height=20),
                 ft.Container(
@@ -899,19 +732,25 @@ class App:
                         ft.Container(width=16),
                         ft.Column([
                             ft.Text("Universidad de formación", size=15, weight="bold", color=TEXT),
-                            ft.Text("Proyecto de grado en Ingeniería de Sistemas · 2025", size=13, color=TEXT_SUB),
-                            ft.Text("Agrega aquí el nombre de tu universidad ✏️", size=12, color=ACCENT, weight="w500"),
+                            ft.Text("Proyecto de grado en Ingeniería de Software", size=13, color=TEXT_SUB),
+                            ft.Text("Universidad De Cundinamarca - Seccional Girardot ✏️",
+                                    size=12, color=ACCENT, weight="w500"),
                         ], spacing=4),
                     ], vertical_alignment="center"),
                 ),
             ], spacing=4),
-        ))
+        )
+
+    # ─── PANTALLAS NAVEGACIÓN ────────────────────────────────────────────────
+
+    def pantalla_nosotros(self):
+        self._rebuild_sidebar("nosotros")
+        self._set(ft.Container(bgcolor=BG, content=self._seccion_equipo()))
 
     def pantalla_contacto(self):
-        self._reset_bg()
         self._rebuild_sidebar("contacto")
         self._set(ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Contacto"),
                 ft.Container(height=6),
@@ -921,10 +760,10 @@ class App:
                 ft.Container(height=28),
                 ft.Row([
                     contact_card("📧", "Correo electrónico",
-                                 "correo@universidad.edu.co",
-                                 "correo2@universidad.edu.co"),
+                                 "emaltes@ucundinamarca.edu.co",
+                                 "derminsovargas@ucundinamarca.edu.co"),
                     contact_card("💻", "Repositorio del proyecto",
-                                 "github.com/usuario/sofalab3d"),
+                                 "https://github.com/daviderminso/SofaLab3D_PGC"),
                     contact_card("📍", "Ubicación",
                                  "Colombia · Facultad de Ingeniería"),
                     contact_card("🕐", "Horario de atención",
@@ -934,26 +773,23 @@ class App:
         ))
 
     def pantalla_perfil(self):
-        self._reset_bg()
         self._rebuild_sidebar("perfil")
         if not self.usuario:
             self.pantalla_login()
             return
 
-        pwd     = campo("Nueva contraseña", password=True)
-        pwd2    = campo("Confirmar nueva contraseña", password=True)
-        msg     = ft.Text("", size=12)
+        pwd  = campo("Nueva contraseña", password=True)
+        pwd2 = campo("Confirmar nueva contraseña", password=True)
+        msg  = ft.Text("", size=12)
 
         def cambiar(e):
             err = _validar_pwd(pwd.value)
             if err:
                 msg.value, msg.color = err, DANGER
-                self.page.update()
-                return
+                self.page.update(); return
             if pwd.value != pwd2.value:
                 msg.value, msg.color = "Las contraseñas no coinciden", DANGER
-                self.page.update()
-                return
+                self.page.update(); return
             if db.actualizar_password(self.usuario, pwd.value):
                 msg.value, msg.color = "Contraseña actualizada correctamente", SUCCESS
                 pwd.value = pwd2.value = ""
@@ -962,7 +798,7 @@ class App:
             self.page.update()
 
         self._set(ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Mi perfil"),
                 ft.Container(height=6),
@@ -970,8 +806,7 @@ class App:
                 ft.Container(height=24),
                 ft.Container(
                     bgcolor=SURFACE, border_radius=12,
-                    border=borde(), padding=28,
-                    width=480,
+                    border=borde(), padding=28, width=480,
                     content=ft.Column([
                         ft.Row([
                             ft.Container(
@@ -983,7 +818,8 @@ class App:
                                 ),
                                 content=ft.Text(
                                     self.usuario[0].upper(),
-                                    size=26, weight="bold", color="white", text_align="center",
+                                    size=26, weight="bold", color="white",
+                                    text_align="center",
                                 ),
                                 alignment=ft.alignment.Alignment(0, 0),
                             ),
@@ -1009,7 +845,6 @@ class App:
     # ─── LOGIN ───────────────────────────────────────────────────────────────
 
     def pantalla_login(self, e=None):
-        self._reset_bg()
         self._rebuild_sidebar("login")
         usr = campo("Usuario")
         pwd = campo("Contraseña", password=True)
@@ -1030,7 +865,7 @@ class App:
                 self.page.update()
 
         self._set(ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Acceso al sistema"),
                 ft.Container(height=6),
@@ -1057,7 +892,6 @@ class App:
     # ─── REGISTRO ────────────────────────────────────────────────────────────
 
     def pantalla_registro(self, e=None):
-        self._reset_bg()
         usr  = campo("Usuario")
         pwd  = campo("Contraseña", password=True)
         pwd2 = campo("Confirmar contraseña", password=True)
@@ -1080,7 +914,7 @@ class App:
             self.page.update()
 
         self._set(ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Nueva cuenta"),
                 ft.Container(height=6),
@@ -1104,7 +938,6 @@ class App:
     # ─── RECUPERAR ───────────────────────────────────────────────────────────
 
     def pantalla_recuperar(self, e=None):
-        self._reset_bg()
         usr = campo("Usuario")
         pwd = campo("Nueva contraseña", password=True)
         msg = ft.Text("", size=12)
@@ -1123,7 +956,7 @@ class App:
             self.page.update()
 
         self._set(ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Recuperar acceso"),
                 ft.Container(height=6),
@@ -1147,7 +980,6 @@ class App:
     # ─── TELAS ───────────────────────────────────────────────────────────────
 
     def pantalla_telas(self):
-        self._reset_bg()
         if not self.usuario:
             self.pantalla_login(); return
         self._rebuild_sidebar("telas")
@@ -1221,7 +1053,7 @@ class App:
         )
 
         self._set(ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Módulos del sistema"),
                 ft.Container(height=6),
@@ -1237,19 +1069,24 @@ class App:
         ))
 
     def _card_tela(self, tela: dict):
-        tiene_img = os.path.isfile(tela["ruta_img"])
-        img_widget = (
-            ft.Image(src=tela["ruta_img"], width=160, height=160,
-                     fit="cover", border_radius=8)
-            if tiene_img else
-            ft.Container(
+        blob = tela.get("imagen_blob")
+        ext  = tela.get("extension", "png")
+
+        if blob:
+            src = blob_a_base64_src(blob, ext)
+            img_widget = ft.Image(
+                src=src, width=160, height=160,
+                fit="cover", border_radius=8,
+            )
+        else:
+            img_widget = ft.Container(
                 width=160, height=160, bgcolor=SURFACE2, border_radius=8,
                 content=ft.Column([
                     ft.Text("🖼️", size=28),
                     ft.Text("Sin imagen", size=10, color=TEXT_SUB),
                 ], alignment="center", horizontal_alignment="center"),
             )
-        )
+
         return ft.Container(
             width=160, bgcolor=CARD_BG, border_radius=10,
             border=borde(), padding=8,
@@ -1279,47 +1116,115 @@ class App:
             ], alignment="center", horizontal_alignment="center", spacing=6),
         )
 
+    # ─── DIÁLOGO AGREGAR TELA ────────────────────────────────────────────────
+
     def _dialogo_agregar_tela(self, catalogo_id: int):
+        EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+
         nombre_f = campo("Nombre de la tela")
-        ruta_f   = campo("Ruta de la imagen", hint="ej: telas/bordeaux.png")
-        ayuda    = ft.Text("Extensiones válidas: png, jpg, jpeg, webp", size=10, color=TEXT_SUB)
-        msg      = ft.Text("", size=11, color=DANGER)
-        EXTS     = {".png", ".jpg", ".jpeg", ".webp"}
+        ruta_f   = campo(
+            "Ruta de la imagen",
+            hint="ej: C:/fotos/tela.jpg   o   C:\\fotos\\tela.jpg",
+        )
+        ayuda = ft.Text(
+            "Extensiones válidas: png · jpg · jpeg · webp\n"
+            "Puedes usar barras / o \\ indistintamente.",
+            size=10, color=TEXT_SUB,
+        )
+
+        preview = ft.Container(
+            width=200, height=120,
+            bgcolor=SURFACE2, border_radius=8,
+            content=ft.Column([
+                ft.Text("🖼️", size=28),
+                ft.Text("Vista previa", size=10, color=TEXT_SUB),
+            ], alignment="center", horizontal_alignment="center"),
+        )
+        msg = ft.Text("", size=11, color=DANGER)
+
+        def _normalizar(ruta: str) -> str:
+            """Convierte cualquier separador a os.sep y elimina espacios."""
+            return os.path.normpath(ruta.strip()) if ruta else ""
+
+        def previsualizar(e):
+            r = _normalizar(ruta_f.value)
+            ext_ok = os.path.splitext(r)[1].lower() in EXTS
+            if r and os.path.isfile(r) and ext_ok:
+                preview.content = ft.Image(
+                    src=r, width=200, height=120,
+                    fit="cover", border_radius=8,
+                )
+                msg.value = ""
+            else:
+                preview.content = ft.Column([
+                    ft.Text("🖼️", size=28),
+                    ft.Text("Sin vista previa", size=10, color=TEXT_SUB),
+                ], alignment="center", horizontal_alignment="center")
+                if r and not os.path.isfile(r):
+                    msg.value = "No se encontró el archivo en esa ruta"
+                elif r and not ext_ok:
+                    msg.value = "Extensión no válida: usa png, jpg, jpeg o webp"
+            self.page.update()
+
+        ruta_f.on_blur   = previsualizar
+        ruta_f.on_submit = previsualizar
 
         def confirmar(e):
             n = nombre_f.value.strip()
-            r = ruta_f.value.strip()
+            r = _normalizar(ruta_f.value)
+
             if not n:
-                msg.value = "Escribe un nombre para la tela"; self.page.update(); return
+                msg.value = "Escribe un nombre para la tela"
+                self.page.update(); return
             if not r:
-                msg.value = "Ingresa la ruta de la imagen"; self.page.update(); return
+                msg.value = "Ingresa la ruta de la imagen"
+                self.page.update(); return
             if os.path.splitext(r)[1].lower() not in EXTS:
-                msg.value = "Extensión no válida: usa png, jpg, jpeg o webp"; self.page.update(); return
+                msg.value = "Extensión no válida: usa png, jpg, jpeg o webp"
+                self.page.update(); return
             if not os.path.isfile(r):
-                msg.value = "No se encontró el archivo en esa ruta"; self.page.update(); return
+                msg.value = f"Archivo no encontrado:\n{r}"
+                self.page.update(); return
+
             if db.agregar_tela(catalogo_id, n, r):
-                self.page.dialog.open = False; self.page.update()
+                self._cerrar_dialogo(dlg)
                 snack(self.page, f'"{n}" agregada al catálogo')
                 self._render_telas()
             else:
-                msg.value = "Error al agregar"; self.page.update()
+                msg.value = "Error al guardar en la base de datos"
+                self.page.update()
 
         def cancelar(e):
-            self.page.dialog.open = False; self.page.update()
+            self._cerrar_dialogo(dlg)
 
         dlg = ft.AlertDialog(
             title=ft.Text("Agregar tela al catálogo", color=TEXT, weight="bold"),
             bgcolor=SURFACE,
-            content=ft.Column([nombre_f, ruta_f, ayuda, msg], spacing=12, tight=True),
-            actions=[btn_ghost("Cancelar", cancelar), btn_primary("Agregar", confirmar)],
+            content=ft.Column([
+                nombre_f,
+                ft.Container(height=6),
+                ruta_f,
+                ft.Container(height=4),
+                ayuda,
+                ft.Container(height=10),
+                preview,
+                ft.Container(height=4),
+                msg,
+            ], spacing=4, tight=True, width=340),
+            actions=[
+                btn_ghost("Cancelar", cancelar),
+                btn_primary("Agregar", confirmar),
+            ],
             shape=ft.RoundedRectangleBorder(radius=12),
         )
-        self.page.dialog = dlg; dlg.open = True; self.page.update()
+        self._abrir_dialogo(dlg)
 
     def _eliminar_tela(self, tela_id: int):
         db.eliminar_tela(tela_id)
         snack(self.page, "Tela eliminada del catálogo")
         self._render_telas()
+
+    # ─── DIÁLOGO RENOMBRAR ───────────────────────────────────────────────────
 
     def _dialogo_renombrar_catalogo(self, catalogo_id: int, nombre_actual: str):
         nuevo_f = campo("Nuevo nombre")
@@ -1331,14 +1236,15 @@ class App:
             if not n:
                 msg.value = "Escribe un nombre"; self.page.update(); return
             if db.renombrar_catalogo(catalogo_id, n):
-                self.page.dialog.open = False; self.page.update()
+                self._cerrar_dialogo(dlg)
                 snack(self.page, f'Catálogo renombrado a "{n}"')
                 self._render_telas()
             else:
-                msg.value = "Ya existe un catálogo con ese nombre"; self.page.update()
+                msg.value = "Ya existe un catálogo con ese nombre"
+                self.page.update()
 
         def cancelar(e):
-            self.page.dialog.open = False; self.page.update()
+            self._cerrar_dialogo(dlg)
 
         dlg = ft.AlertDialog(
             title=ft.Text(f'Renombrar "{nombre_actual}"', color=TEXT, weight="bold"),
@@ -1347,17 +1253,19 @@ class App:
             actions=[btn_ghost("Cancelar", cancelar), btn_primary("Guardar", confirmar)],
             shape=ft.RoundedRectangleBorder(radius=12),
         )
-        self.page.dialog = dlg; dlg.open = True; self.page.update()
+        self._abrir_dialogo(dlg)
+
+    # ─── DIÁLOGO ELIMINAR CATÁLOGO ───────────────────────────────────────────
 
     def _confirmar_eliminar_catalogo(self, catalogo_id: int, nombre: str):
         def confirmar(e):
-            self.page.dialog.open = False; self.page.update()
+            self._cerrar_dialogo(dlg)
             db.eliminar_catalogo(catalogo_id)
             snack(self.page, f'Catálogo "{nombre}" eliminado')
             self._render_telas()
 
         def cancelar(e):
-            self.page.dialog.open = False; self.page.update()
+            self._cerrar_dialogo(dlg)
 
         dlg = ft.AlertDialog(
             title=ft.Text(f'¿Eliminar "{nombre}"?', color=TEXT, weight="bold"),
@@ -1369,12 +1277,11 @@ class App:
             actions=[btn_ghost("Cancelar", cancelar), btn_danger("Eliminar", confirmar)],
             shape=ft.RoundedRectangleBorder(radius=12),
         )
-        self.page.dialog = dlg; dlg.open = True; self.page.update()
+        self._abrir_dialogo(dlg)
 
     # ─── 3D ──────────────────────────────────────────────────────────────────
 
     def pantalla_3d(self):
-        self._reset_bg()
         if not self.usuario:
             self.pantalla_login(); return
         self._rebuild_sidebar("3d")
@@ -1386,21 +1293,19 @@ class App:
                 if f.endswith((".glb", ".egg", ".bam", ".gltf"))
             ]
 
-        if not modelos:
-            cuerpo = ft.Column([
+        cuerpo = (
+            ft.Row([self._card_modelo(m) for m in modelos], wrap=True, spacing=16)
+            if modelos else
+            ft.Column([
                 ft.Container(height=50),
                 ft.Text("📦", size=52),
                 ft.Text("No hay modelos disponibles", size=18, color=TEXT_SUB),
                 subtitulo(f'Agrega archivos .glb en la carpeta "{RUTA_MODELOS}/"'),
             ], horizontal_alignment="center", spacing=10)
-        else:
-            cuerpo = ft.Row(
-                [self._card_modelo(m) for m in modelos],
-                wrap=True, spacing=16,
-            )
+        )
 
         self._set(ft.Container(
-            padding=48,
+            bgcolor=BG, padding=48,
             content=ft.Column([
                 section_label("Módulos del sistema"),
                 ft.Container(height=6),

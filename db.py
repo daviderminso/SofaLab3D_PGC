@@ -1,5 +1,6 @@
 import sqlite3
 import hashlib
+import os
 from contextlib import closing
 
 DB = "sofalab.db"
@@ -10,17 +11,15 @@ CATALOGOS_INICIALES = ["Cuerina", "Veranera", "Nevada", "Turin", "Tornado"]
 # ─── CONEXIÓN ────────────────────────────────────────────────────────────────
 
 def conectar() -> sqlite3.Connection:
-    """Abre la BD con foreign keys activas y row_factory para dicts."""
     conn = sqlite3.connect(DB)
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.row_factory = sqlite3.Row          # permite acceso por nombre de columna
+    conn.row_factory = sqlite3.Row
     return conn
 
 
 # ─── HASH ────────────────────────────────────────────────────────────────────
 
 def _hash(pwd: str) -> str:
-    """SHA-256 de la contraseña.  Nunca guardes texto plano."""
     return hashlib.sha256(pwd.encode()).hexdigest()
 
 
@@ -50,18 +49,24 @@ def crear_tablas() -> None:
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             catalogo_id INTEGER NOT NULL,
             nombre      TEXT NOT NULL,
-            ruta_img    TEXT NOT NULL,
+            imagen_blob BLOB,
+            extension   TEXT,
             FOREIGN KEY (catalogo_id) REFERENCES catalogos(id) ON DELETE CASCADE
         )
         """)
 
-        # Índice para acelerar listar_telas()
+        # Migración segura: agrega columnas si no existen
+        for col, tipo in [("imagen_blob", "BLOB"), ("extension", "TEXT")]:
+            try:
+                c.execute(f"ALTER TABLE telas ADD COLUMN {col} {tipo}")
+            except Exception:
+                pass
+
         c.execute("""
         CREATE INDEX IF NOT EXISTS idx_telas_catalogo
         ON telas(catalogo_id)
         """)
 
-        # Catálogos iniciales
         for nombre in CATALOGOS_INICIALES:
             try:
                 c.execute("INSERT INTO catalogos (nombre) VALUES (?)", (nombre,))
@@ -158,25 +163,67 @@ def renombrar_catalogo(catalogo_id: int, nuevo_nombre: str) -> bool:
 # ─── TELAS ───────────────────────────────────────────────────────────────────
 
 def agregar_tela(catalogo_id: int, nombre: str, ruta_img: str) -> bool:
+    """
+    Lee el archivo de imagen y guarda los bytes en SQLite.
+    """
     try:
+        print(f"[db] agregar_tela llamado")
+        print(f"[db]   catalogo_id = {catalogo_id}")
+        print(f"[db]   nombre      = '{nombre}'")
+        print(f"[db]   ruta_img    = '{ruta_img}'")
+
+        ruta_normalizada = os.path.normpath(ruta_img.strip()) if ruta_img else ""
+        print(f"[db]   ruta_norm   = '{ruta_normalizada}'")
+        print(f"[db]   existe      = {os.path.isfile(ruta_normalizada)}")
+
+        if not ruta_normalizada or not os.path.isfile(ruta_normalizada):
+            print("[db] ERROR: archivo no encontrado")
+            return False
+
+        with open(ruta_normalizada, "rb") as f:
+            blob = f.read()
+        ext = os.path.splitext(ruta_normalizada)[1].lower().lstrip(".")
+        print(f"[db]   blob size   = {len(blob)} bytes")
+        print(f"[db]   extension   = '{ext}'")
+
+        # Verificar que la tabla telas tiene las columnas correctas
         with closing(conectar()) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(telas)").fetchall()]
+            print(f"[db]   columnas telas = {cols}")
+
             conn.execute(
-                "INSERT INTO telas (catalogo_id, nombre, ruta_img) VALUES (?, ?, ?)",
-                (catalogo_id, nombre, ruta_img),
+                "INSERT INTO telas (catalogo_id, nombre, imagen_blob, extension) "
+                "VALUES (?, ?, ?, ?)",
+                (catalogo_id, nombre, blob, ext),
             )
             conn.commit()
-        return True
-    except Exception:
+            print("[db] INSERT exitoso")
+            return True
+
+    except Exception as ex:
+        import traceback
+        print(f"[db] EXCEPCION en agregar_tela: {type(ex).__name__}: {ex}")
+        traceback.print_exc()
         return False
 
 
 def listar_telas(catalogo_id: int) -> list[dict]:
+    """Retorna id, nombre, imagen_blob, extension."""
     with closing(conectar()) as conn:
         rows = conn.execute(
-            "SELECT id, nombre, ruta_img FROM telas WHERE catalogo_id=? ORDER BY nombre",
+            "SELECT id, nombre, imagen_blob, extension "
+            "FROM telas WHERE catalogo_id=? ORDER BY nombre",
             (catalogo_id,),
         ).fetchall()
-    return [{"id": r["id"], "nombre": r["nombre"], "ruta_img": r["ruta_img"]} for r in rows]
+    return [
+        {
+            "id":          r["id"],
+            "nombre":      r["nombre"],
+            "imagen_blob": r["imagen_blob"],
+            "extension":   r["extension"],
+        }
+        for r in rows
+    ]
 
 
 def eliminar_tela(tela_id: int) -> bool:
