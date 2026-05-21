@@ -1,29 +1,41 @@
 import sys
+from math import sin, cos, radians          # ← movido al tope, fuera del método
+
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import AmbientLight, DirectionalLight, Vec4
 from direct.task import Task
 
+DIST_MIN  = 3
+DIST_MAX  = 30
+ANGULO_V_MIN = -10
+ANGULO_V_MAX =  80
+ZOOM_PASO    =  1.0
+ROT_SPEED    = 150.0
 
-class App(ShowBase):
-    def __init__(self, modelo):
+
+class VisorModelo(ShowBase):
+    """Visor 3D interactivo para modelos Panda3D (.glb / .egg / .bam / .gltf)."""
+
+    def __init__(self, modelo: str):
         super().__init__()
 
         self.setBackgroundColor(0.1, 0.1, 0.1)
 
+        # ── Nodo raíz del modelo ──────────────────────────────────────────────
         self.nodo = self.render.attachNewNode("nodo")
-
         self.modelo = self.loader.loadModel(f"modelos/{modelo}")
         self.modelo.reparentTo(self.nodo)
         self.modelo.setScale(1)
         self.modelo.setPos(0, 0, 0)
 
+        # ── Cámara ───────────────────────────────────────────────────────────
         self.disableMouse()
-        self.distancia = 10
-        self.angulo_h = 0
-        self.angulo_v = 10
+        self.distancia = 10.0
+        self.angulo_h  = 0.0
+        self.angulo_v  = 10.0
+        self._actualizar_camara()
 
-        self.actualizar_camara()
-
+        # ── Iluminación ──────────────────────────────────────────────────────
         ambient = AmbientLight("ambient")
         ambient.setColor(Vec4(0.7, 0.7, 0.7, 1))
         self.render.setLight(self.render.attachNewNode(ambient))
@@ -33,42 +45,44 @@ class App(ShowBase):
         directional.setDirection((1, -1, -1))
         self.render.setLight(self.render.attachNewNode(directional))
 
-        self.rotando = False
-        self.last_x = 0
-        self.last_y = 0
+        # ── Estado del ratón ─────────────────────────────────────────────────
+        self._rotando = False
+        self._last_x  = 0.0
+        self._last_y  = 0.0
 
-        self.accept("mouse1", self.iniciar_rotacion)
-        self.accept("mouse1-up", self.detener_rotacion)
+        # ── Eventos ──────────────────────────────────────────────────────────
+        self.accept("mouse1",    self._iniciar_rotacion)
+        self.accept("mouse1-up", self._detener_rotacion)
+        self.accept("wheel_up",  self._zoom_in)
+        self.accept("wheel_down",self._zoom_out)
+        self.accept("escape",    sys.exit)          # salir con Escape
 
-        self.accept("wheel_up", self.zoom_in)
-        self.accept("wheel_down", self.zoom_out)
+        self.taskMgr.add(self._update, "update")
 
-        self.taskMgr.add(self.update, "update")
+    # ── Rotación ─────────────────────────────────────────────────────────────
 
-    def iniciar_rotacion(self):
-        self.rotando = True
+    def _iniciar_rotacion(self) -> None:
+        self._rotando = True
         if self.mouseWatcherNode.hasMouse():
-            self.last_x = self.mouseWatcherNode.getMouseX()
-            self.last_y = self.mouseWatcherNode.getMouseY()
+            self._last_x = self.mouseWatcherNode.getMouseX()
+            self._last_y = self.mouseWatcherNode.getMouseY()
 
-    def detener_rotacion(self):
-        self.rotando = False
+    def _detener_rotacion(self) -> None:
+        self._rotando = False
 
-    def zoom_in(self):
-        self.distancia -= 1
-        if self.distancia < 3:
-            self.distancia = 3
-        self.actualizar_camara()
+    # ── Zoom ─────────────────────────────────────────────────────────────────
 
-    def zoom_out(self):
-        self.distancia += 1
-        if self.distancia > 30:
-            self.distancia = 30
-        self.actualizar_camara()
+    def _zoom_in(self) -> None:
+        self.distancia = max(DIST_MIN, self.distancia - ZOOM_PASO)
+        self._actualizar_camara()
 
-    def actualizar_camara(self):
-        from math import sin, cos, radians
+    def _zoom_out(self) -> None:
+        self.distancia = min(DIST_MAX, self.distancia + ZOOM_PASO)
+        self._actualizar_camara()
 
+    # ── Cámara esférica ──────────────────────────────────────────────────────
+
+    def _actualizar_camara(self) -> None:
         h = radians(self.angulo_h)
         v = radians(self.angulo_v)
 
@@ -79,35 +93,33 @@ class App(ShowBase):
         self.camera.setPos(x, y, z)
         self.camera.lookAt(self.nodo)
 
-    def update(self, task):
-        if self.rotando and self.mouseWatcherNode.hasMouse():
+    # ── Loop principal ───────────────────────────────────────────────────────
+
+    def _update(self, task) -> int:
+        if self._rotando and self.mouseWatcherNode.hasMouse():
             x = self.mouseWatcherNode.getMouseX()
             y = self.mouseWatcherNode.getMouseY()
 
-            dx = x - self.last_x
-            dy = y - self.last_y
+            self.angulo_h -= (x - self._last_x) * ROT_SPEED
+            self.angulo_v  = max(
+                ANGULO_V_MIN,
+                min(ANGULO_V_MAX, self.angulo_v + (y - self._last_y) * ROT_SPEED),
+            )
 
-            self.angulo_h -= dx * 150
-            self.angulo_v += dy * 150
+            self._actualizar_camara()
 
-            if self.angulo_v > 80:
-                self.angulo_v = 80
-            if self.angulo_v < -10:
-                self.angulo_v = -10
-
-            self.actualizar_camara()
-
-            self.last_x = x
-            self.last_y = y
+            self._last_x = x
+            self._last_y = y
 
         return Task.cont
 
 
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        modelo = sys.argv[1]
-    else:
-        sys.exit()
+# ─── ENTRADA ─────────────────────────────────────────────────────────────────
 
-    app = App(modelo)
-    app.run()
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Uso: python main.py <nombre_modelo>")
+        sys.exit(1)
+
+    visor = VisorModelo(sys.argv[1])
+    visor.run()
